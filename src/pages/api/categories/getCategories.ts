@@ -1,3 +1,4 @@
+import { AuthenticatedUser } from "@/lib/auth-utils";
 import { prisma } from "@/lib/db";
 import { CategorySchema } from "@/types/category";
 import { NextApiRequest, NextApiResponse } from "next";
@@ -9,13 +10,17 @@ type CategoryResponse = {
 
 export default async function handler(
     req: NextApiRequest,
-    res: NextApiResponse<CategoryResponse>
+    res: NextApiResponse<CategoryResponse>,
+    user: AuthenticatedUser
 ) {
     if (req.method === 'GET') {
         try {
             const categories = await prisma.category.findMany({
+                where: {
+                    createdById: user.id,
+                },
                 orderBy: [
-                    { name: 'asc' }
+                    { name: 'asc' },
                 ],
             });
 
