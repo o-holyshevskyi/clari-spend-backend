@@ -26,7 +26,6 @@ export default async function handler(
 
       return res.status(200).json({ spends: formattedSpends });
     } catch (error) {
-      console.error('GET /expenses error:', error);
       return res.status(500).json({ error: 'Failed to load expenses', spends: [] });
     }
   } else {

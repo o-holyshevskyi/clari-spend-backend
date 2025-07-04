@@ -1,4 +1,4 @@
-export type Category = {
+export type CategorySchema = {
     id: string;
     name: string;
     icon: string;

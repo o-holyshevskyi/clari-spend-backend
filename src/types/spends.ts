@@ -1,4 +1,4 @@
-import { Category } from "./category";
+import { CategorySchema } from "./category";
 
 export type PaymentMethods = 'card' | 'cash' | 'bank-transfer' | 'digital-wallet'
 
@@ -7,7 +7,7 @@ export type SpendSchema = {
     amount: number;
     description: string;
     categoryId: string;
-    category: Category;
+    category: CategorySchema;
     paymentMethod: PaymentMethods;
     date: Date;
     notes: string;
