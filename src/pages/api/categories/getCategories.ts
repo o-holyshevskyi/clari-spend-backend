@@ -1,14 +1,15 @@
-import { AuthenticatedUser } from "@/lib/auth-utils";
+import { AuthenticatedUser, withAuth } from "@/lib/auth-utils";
 import { prisma } from "@/lib/db";
 import { CategorySchema } from "@/types/category";
 import { NextApiRequest, NextApiResponse } from "next";
 
 type CategoryResponse = {
     categories: CategorySchema[];
+    totalCount: number;
     error?: string;
 }
 
-export default async function handler(
+async function handler(
     req: NextApiRequest,
     res: NextApiResponse<CategoryResponse>,
     user: AuthenticatedUser
@@ -17,7 +18,10 @@ export default async function handler(
         try {
             const categories = await prisma.category.findMany({
                 where: {
-                    createdById: user.id,
+                    OR: [
+                        { createdById: user.id },
+                        { createdById: 'system' }
+                    ]
                 },
                 orderBy: [
                     { name: 'asc' },
@@ -25,12 +29,24 @@ export default async function handler(
             });
 
             return res.status(200).json({ 
-                categories, 
+                categories,
+                totalCount: categories.length,
             });
         } catch (error) {
-            return res.status(500).json({ error: 'Failed to load categories', categories: [] });
+            console.log(error);
+            return res.status(500).json({ 
+                error: 'Failed to load categories', 
+                categories: [],
+                totalCount: 0
+            });
         }
     } else {
-        return res.status(405).json({ error: 'Method not allowed', categories: [] });
+        return res.status(405).json({ 
+            error: 'Method not allowed', 
+            categories: [],
+            totalCount: 0 
+        });
     }
 }
+
+export default withAuth(handler);
