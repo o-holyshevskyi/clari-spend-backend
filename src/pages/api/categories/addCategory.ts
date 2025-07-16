@@ -1,3 +1,4 @@
+import { AuthenticatedUser, withAuth } from "@/lib/auth-utils";
 import { prisma } from "@/lib/db";
 import { CategorySchema } from "@/types/category";
 import { NextApiRequest, NextApiResponse } from "next";
@@ -7,23 +8,22 @@ type CategoryResponse = {
     error?: string;
 };
 
-export default async function handler(
+async function handler(
     req: NextApiRequest,
-    res: NextApiResponse<CategoryResponse>
+    res: NextApiResponse<CategoryResponse>,
+    user: AuthenticatedUser
 ) {
     if (req.method === 'POST') {
         try {
-            const { 
-                name, 
-                icon, 
-                color, 
-                createdById,
-                updatedById 
+            const {
+                name,
+                icon,
+                color,
             } = req.body;
 
-            if (!name || !icon || !color || !createdById) {
+            if (!name || !icon || !color) {
                 return res.status(400).json({ 
-                    error: 'Missing required fields: name, icon, color, and createdById are required', 
+                    error: 'Missing required fields: name, icon, and color are required', 
                     category: null 
                 });
             }
@@ -55,7 +55,11 @@ export default async function handler(
                     name: {
                         equals: name.trim(),
                         mode: 'insensitive'
-                    }
+                    },
+                    OR: [
+                        { createdById: user.id },
+                        { createdById: 'system' }
+                    ]
                 }
             });
 
@@ -71,8 +75,8 @@ export default async function handler(
                     name: name.trim(),
                     icon: icon.trim(),
                     color: color.trim(),
-                    createdById,
-                    updatedById: updatedById || createdById,
+                    createdById: user.id,
+                    updatedById: user.id,
                 }
             });
 
@@ -101,3 +105,5 @@ export default async function handler(
         return res.status(405).json({ error: 'Method not allowed', category: null });
     }
 }
+
+export default withAuth(handler);

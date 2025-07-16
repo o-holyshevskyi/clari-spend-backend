@@ -1,3 +1,4 @@
+import { AuthenticatedUser, withAuth } from "@/lib/auth-utils";
 import { prisma } from "@/lib/db";
 import { PaymentMethods, SpendSchema } from "@/types/spends";
 import { NextApiRequest, NextApiResponse } from "next";
@@ -7,13 +8,15 @@ type SpendsResponse = {
     error?: string;
 }
 
-export default async function handler(
+async function handler(
     req: NextApiRequest,
-    res: NextApiResponse<SpendsResponse>
+    res: NextApiResponse<SpendsResponse>,
+    user: AuthenticatedUser
 ) {
     if (req.method === 'DELETE') {
         try {
             const { id } = req.query;
+
             if (!id || typeof id !== 'string') {
                 return res.status(400).json({ 
                     error: 'Spend ID is required', 
@@ -27,9 +30,16 @@ export default async function handler(
             });
 
             if (!existingSpend) {
-                return res.status(404).json({ 
-                    error: 'Spend not found', 
-                    spend: null 
+                return res.status(404).json({
+                    error: 'Spend not found',
+                    spend: null
+                });
+            }
+
+            if (existingSpend.createdById !== user.id) {
+                return res.status(403).json({
+                    error: 'You are not authorized to delete this spend.',
+                    spend: null
                 });
             }
 
@@ -44,20 +54,22 @@ export default async function handler(
             };
 
             return res.status(200).json({ spend: formattedSpend });
-        } catch (error) {
-            if (error instanceof Error && error.message.includes('Record to delete does not exist')) {
-                return res.status(404).json({ 
-                    error: 'Spend not found', 
-                    spend: null 
+        } catch (error: any) {
+            if (error.code === 'P2025') {
+                return res.status(404).json({
+                    error: 'Spend not found or already deleted',
+                    spend: null
                 });
             }
 
-            return res.status(500).json({ 
-                error: 'Failed to delete spend', 
-                spend: null 
+            return res.status(500).json({
+                error: 'Failed to delete spend due to an internal server error',
+                spend: null
             });
         }
     } else {
         return res.status(405).json({ error: 'Method not allowed', spend: null });
     }
 }
+
+export default withAuth(handler);

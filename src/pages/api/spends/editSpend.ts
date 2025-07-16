@@ -1,3 +1,4 @@
+import { AuthenticatedUser, withAuth } from "@/lib/auth-utils";
 import { prisma } from "@/lib/db";
 import { PaymentMethods, SpendSchema } from "@/types/spends";
 import { NextApiRequest, NextApiResponse } from "next";
@@ -7,9 +8,10 @@ type SpendsResponse = {
     error?: string;
 }
 
-export default async function handle(
+async function handler(
     req: NextApiRequest,
-    res: NextApiResponse<SpendsResponse>
+    res: NextApiResponse<SpendsResponse>,
+    user: AuthenticatedUser
 ) {
     if (req.method === 'PUT') {
         try {
@@ -18,21 +20,14 @@ export default async function handle(
                 description, 
                 categoryId, 
                 amount, 
-                paymentMethod, 
+                paymentMethod,
+                date,
                 notes,
-                updatedById 
             } = req.body;
 
             if (!id || typeof id !== 'string') {
                 return res.status(400).json({ 
                     error: 'Spend ID is required', 
-                    spend: null 
-                });
-            }
-
-            if (!updatedById) {
-                return res.status(400).json({ 
-                    error: 'updatedById is required', 
                     spend: null 
                 });
             }
@@ -43,22 +38,29 @@ export default async function handle(
             });
 
             if (!existingSpend) {
-                return res.status(404).json({ 
-                    error: 'Spend not found', 
-                    spend: null 
+                return res.status(404).json({
+                    error: 'Spend not found',
+                    spend: null
+                });
+            }
+
+            if (existingSpend.createdById !== user.id) {
+                return res.status(403).json({
+                    error: 'You are not authorized to update this spend.',
+                    spend: null
                 });
             }
 
             const updateData: any = {
-                updatedById,
+                updatedById: user.id,
                 updatedAt: new Date()
             };
 
             if (description !== undefined) {
                 if (typeof description !== 'string' || description.trim().length === 0) {
-                    return res.status(400).json({ 
-                        error: 'Description must be a non-empty string', 
-                        spend: null 
+                    return res.status(400).json({
+                        error: 'Description must be a non-empty string',
+                        spend: null
                     });
                 }
                 updateData.description = description.trim();
@@ -66,9 +68,9 @@ export default async function handle(
 
             if (amount !== undefined) {
                 if (typeof amount !== 'number' || amount <= 0) {
-                    return res.status(400).json({ 
-                        error: 'Amount must be a positive number', 
-                        spend: null 
+                    return res.status(400).json({
+                        error: 'Amount must be a positive number',
+                        spend: null
                     });
                 }
                 updateData.amount = amount;
@@ -77,9 +79,9 @@ export default async function handle(
             if (paymentMethod !== undefined) {
                 const validPaymentMethods: PaymentMethods[] = ['card', 'cash', 'bank-transfer', 'digital-wallet'];
                 if (!validPaymentMethods.includes(paymentMethod)) {
-                    return res.status(400).json({ 
-                        error: 'Invalid payment method. Must be one of: card, cash, bank-transfer, digital-wallet', 
-                        spend: null 
+                    return res.status(400).json({
+                        error: 'Invalid payment method. Must be one of: card, cash, bank-transfer, digital-wallet',
+                        spend: null
                     });
                 }
                 updateData.paymentMethod = paymentMethod;
@@ -87,22 +89,49 @@ export default async function handle(
 
             if (categoryId !== undefined) {
                 if (typeof categoryId !== 'string' || categoryId.trim().length === 0) {
-                    return res.status(400).json({ 
-                        error: 'Category ID must be a non-empty string', 
-                        spend: null 
+                    return res.status(400).json({
+                        error: 'Category ID must be a non-empty string',
+                        spend: null
+                    });
+                }
+                
+                const newCategory = await prisma.category.findFirst({
+                    where: {
+                        id: categoryId,
+                        OR: [
+                            { createdById: user.id },
+                            { createdById: 'system' }
+                        ]
+                    }
+                });
+
+                if (!newCategory) {
+                    return res.status(400).json({
+                        error: 'Invalid new category ID or category not accessible to your account.',
+                        spend: null
                     });
                 }
                 updateData.categoryId = categoryId;
             }
 
-            if (notes !== undefined) {
-                if (typeof notes !== 'string') {
-                    return res.status(400).json({ 
-                        error: 'Notes must be a string', 
-                        spend: null 
+            if (date !== undefined) {
+                if (typeof date !== 'string') {
+                    return res.status(400).json({
+                        error: 'Invalid date',
+                        spend: null
                     });
                 }
-                updateData.notes = notes;
+                updateData.date = date;
+            }
+
+            if (notes !== undefined) {
+                if (typeof notes !== 'string') {
+                    return res.status(400).json({
+                        error: 'Notes must be a string',
+                        spend: null
+                    });
+                }
+                updateData.notes = notes.trim();
             }
 
             const updatedSpend = await prisma.spend.update({
@@ -117,27 +146,29 @@ export default async function handle(
             };
 
             return res.status(200).json({ spend: formattedSpend });
-        } catch (error) {
-            if (error instanceof Error && error.message.includes('Foreign key constraint')) {
-                return res.status(400).json({ 
-                    error: 'Invalid category ID or user ID', 
-                    spend: null 
+        } catch (error: any) {
+            if (error.code === 'P2003') { // Prisma error code for foreign key constraint violation
+                return res.status(400).json({
+                    error: 'Invalid category ID provided.',
+                    spend: null
                 });
             }
 
-            if (error instanceof Error && error.message.includes('Record to update not found')) {
-                return res.status(404).json({ 
-                    error: 'Spend not found', 
-                    spend: null 
+            if (error.code === 'P2025') { // Prisma error code for record not found (e.g., if ID was valid but record was deleted before update)
+                return res.status(404).json({
+                    error: 'Spend not found or already deleted',
+                    spend: null
                 });
             }
 
-            return res.status(500).json({ 
-                error: 'Failed to update spend', 
-                spend: null 
+            return res.status(500).json({
+                error: 'Failed to update spend due to an internal server error',
+                spend: null
             });
         }
     } else {
         return res.status(405).json({ error: 'Method not allowed', spend: null });
     }
 }
+
+export default withAuth(handler);

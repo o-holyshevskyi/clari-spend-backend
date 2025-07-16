@@ -1,3 +1,4 @@
+import { AuthenticatedUser, withAuth } from "@/lib/auth-utils";
 import { prisma } from "@/lib/db";
 import { PaymentMethods, SpendSchema } from "@/types/spends"
 import { NextApiRequest, NextApiResponse } from "next";
@@ -7,9 +8,10 @@ type SpendsResponse = {
     error?: string;
 };
 
-export default async function handler(
+async function handler(
     req: NextApiRequest,
     res: NextApiResponse<SpendsResponse>,
+    user: AuthenticatedUser
 ) {
     if (req.method === 'POST') {
         try {
@@ -20,13 +22,11 @@ export default async function handler(
                 paymentMethod, 
                 date,
                 notes,
-                createdById,
-                updatedById 
             } = req.body;
 
-            if (!amount || !description || !categoryId || !paymentMethod || !createdById) {
+            if (!amount || !description || !categoryId || !paymentMethod) {
                 return res.status(400).json({ 
-                    error: 'Missing required fields: amount, description, categoryId, paymentMethod, and createdById are required', 
+                    error: 'Missing required fields: amount, description, categoryId, and paymentMethod are required', 
                     spend: null 
                 });
             }
@@ -46,16 +46,40 @@ export default async function handler(
                 });
             }
 
+            if (typeof description !== 'string' || description.trim().length === 0) {
+                return res.status(400).json({
+                    error: 'Description must be a non-empty string',
+                    spend: null
+                });
+            }
+
+            const category = await prisma.category.findFirst({
+                where: {
+                    id: categoryId,
+                    OR: [
+                        { createdById: user.id },
+                        { createdById: 'system' }
+                    ]
+                }
+            });
+
+            if (!category) {
+                return res.status(400).json({
+                    error: 'Invalid category ID or category not accessible to your account.',
+                    spend: null
+                });
+            }
+
             const newSpend = await prisma.spend.create({
                 data: {
                     amount,
-                    description,
+                    description: description.trim(),
                     categoryId,
                     paymentMethod,
-                    date: date ? new Date(date) : new Date(),
-                    notes: notes || '',
-                    createdById,
-                    updatedById: updatedById || createdById,
+                    date: new Date(date),
+                    notes: notes ? String(notes).trim() : '',
+                    createdById: user.id,
+                    updatedById: user.id,
                 },
                 include: { category: true },
             });
@@ -83,3 +107,5 @@ export default async function handler(
         return res.status(405).json({ error: 'Method not allowed', spend: null })
     }
 }
+
+export default withAuth(handler);

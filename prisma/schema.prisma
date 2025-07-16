@@ -33,3 +33,32 @@ model Category {
   updatedById String
   Spend       Spend[]
 }
+
+model Goal {
+  id            String         @id @default(uuid())
+  name          String
+  targetAmount  Float
+  savedAmount   Float
+  startDate     DateTime       @default(now())
+  targetDate    DateTime? // Optional target date
+  icon          String
+  color         String
+  createdById   String
+  updatedById   String? // Optional updated by ID
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  contributions Contribution[]
+}
+
+model Contribution {
+  id          String   @id @default(cuid())
+  amount      Float
+  description String?
+  goalId      String
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  goal        Goal     @relation(fields: [goalId], references: [id], onDelete: Cascade)
+
+  @@map("contributions")
+}

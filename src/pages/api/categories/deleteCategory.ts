@@ -1,3 +1,4 @@
+import { AuthenticatedUser, withAuth } from "@/lib/auth-utils";
 import { prisma } from "@/lib/db";
 import { CategorySchema } from "@/types/category";
 import { NextApiRequest, NextApiResponse } from "next";
@@ -7,9 +8,10 @@ type CategoryResponse = {
     error?: string;
 }
 
-export default async function handler(
+async function handler(
     req: NextApiRequest,
-    res: NextApiResponse<CategoryResponse>
+    res: NextApiResponse<CategoryResponse>,
+    user: AuthenticatedUser
 ) {
     if (req.method === 'DELETE') {
         try {
@@ -23,7 +25,7 @@ export default async function handler(
             }
 
             const existingCategory = await prisma.category.findUnique({
-                where: { id }
+                where: { id },
             });
 
             if (!existingCategory) {
@@ -31,6 +33,20 @@ export default async function handler(
                     error: 'Category not found', 
                     category: null 
                 });
+            }
+
+            if (existingCategory.createdById !== user.id) {
+                if (existingCategory.createdById === 'system') {
+                    return res.status(403).json({
+                        error: 'Cannot delete system categories.',
+                        category: null
+                    });
+                } else {
+                    return res.status(403).json({
+                        error: 'You are not authorized to delete this category.',
+                        category: null
+                    });
+                }
             }
 
             const associatedSpends = await prisma.spend.findFirst({
@@ -68,3 +84,5 @@ export default async function handler(
         return res.status(405).json({ error: 'Method not allowed', category: null });
     }
 }
+
+export default withAuth(handler);
